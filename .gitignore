@@ -1,0 +1,120 @@
+# =============================================================================
+# WinFlashCache – Python .gitignore
+# =============================================================================
+
+# --------------- Byte-compiled / Optimized / DLL files -----------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --------------- C extensions ------------------------------------------------
+*.so
+
+# --------------- Distribution / Packaging ------------------------------------
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# --------------- Installer logs ----------------------------------------------
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --------------- Virtual Environments ----------------------------------------
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+.venv.bak/
+
+# --------------- Unit test / Coverage ----------------------------------------
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytestdebug.log
+
+# --------------- MyPy -------------------------------------------------------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# --------------- Pyright / Pylance -------------------------------------------
+pyrightconfig.json
+
+# --------------- Ruff --------------------------------------------------------
+.ruff_cache/
+
+# --------------- Environments / Secrets --------------------------------------
+.env
+.env.*
+*.env
+!.env.example
+
+# --------------- IDE / Editor ------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# --------------- OS Generated ------------------------------------------------
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.Trash-*
+
+# --------------- WinFlashCache Data (local dev stores) -----------------------
+# The default data directory used during development.
+# Users' actual data lives outside the repo; this prevents
+# accidental commits of local test data.
+data/
+*.wfc
+*.wfcdb
+
+# --------------- Logs --------------------------------------------------------
+*.log
+logs/
+
+# --------------- Misc --------------------------------------------------------
+*.bak
+*.tmp
+*.temp
