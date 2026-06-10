@@ -15,82 +15,72 @@ import argparse
 import sys
 
 from winflashcache import __version__, __app_name__
+from winflashcache.store import DataStore
+
+# Instantiate our global storage engine
+store = DataStore()
 
 
 # =============================================================================
 # COMMAND HANDLER FUNCTIONS
 # =============================================================================
-# Each function below handles one CLI command. Right now, they just print
-# confirmation messages. On Day 3, we'll wire them to an actual data store.
+# Each function below handles one CLI command, executing the corresponding
+# operation on our DataStore instance and printing formatted results.
 # =============================================================================
 
 def handle_set(args):
-    """Handle the SET command — store a key-value pair.
-
-    Args:
-        args: Parsed arguments containing `key` and `value`.
-    """
+    """Handle the SET command — store a key-value pair."""
+    store.set(args.key, args.value)
     print(f'SET "{args.key}" => "{args.value}"')
     print("OK")
 
 
 def handle_get(args):
-    """Handle the GET command — retrieve a value by its key.
-
-    Args:
-        args: Parsed arguments containing `key`.
-    """
-    print(f'GET "{args.key}"')
-    print("(no store connected yet - coming on Day 3!)")
+    """Handle the GET command — retrieve a value by its key."""
+    val = store.get(args.key)
+    if val is None:
+        print("(nil)")
+    else:
+        print(f'"{val}"')
 
 
 def handle_del(args):
-    """Handle the DEL command — delete a key-value pair.
-
-    Args:
-        args: Parsed arguments containing `key`.
-    """
-    print(f'DEL "{args.key}"')
-    print("(integer) 1")
+    """Handle the DEL command — delete a key-value pair."""
+    existed = store.delete(args.key)
+    if existed:
+        print("(integer) 1")
+    else:
+        print("(integer) 0")
 
 
 def handle_exists(args):
-    """Handle the EXISTS command — check if a key is present.
-
-    Args:
-        args: Parsed arguments containing `key`.
-    """
-    print(f'EXISTS "{args.key}"')
-    print("(boolean) false")
+    """Handle the EXISTS command — check if a key is present."""
+    exists = store.exists(args.key)
+    if exists:
+        print("(boolean) true")
+    else:
+        print("(boolean) false")
 
 
 def handle_keys(args):
-    """Handle the KEYS command — list all stored keys.
-
-    Args:
-        args: Parsed arguments (no extra arguments needed).
-    """
-    print("KEYS")
-    print("(empty list)")
+    """Handle the KEYS command — list all stored keys."""
+    all_keys = store.keys()
+    if not all_keys:
+        print("(empty list)")
+    else:
+        for idx, key in enumerate(all_keys, 1):
+            print(f"{idx}) {key}")
 
 
 def handle_count(args):
-    """Handle the COUNT command — display the total number of keys.
-
-    Args:
-        args: Parsed arguments (no extra arguments needed).
-    """
-    print("COUNT")
-    print("(integer) 0")
+    """Handle the COUNT command — display the total number of keys."""
+    count = store.count()
+    print(f"(integer) {count}")
 
 
 def handle_clear(args):
-    """Handle the CLEAR command — remove all stored data.
-
-    Args:
-        args: Parsed arguments (no extra arguments needed).
-    """
-    print("CLEAR")
+    """Handle the CLEAR command — remove all stored data."""
+    store.clear()
     print("OK - all data cleared.")
 
 
