@@ -9,6 +9,9 @@ our application understands. Think of it as teaching the program English:
     python -m winflashcache del name
 
 argparse breaks down the user's input into structured data we can work with.
+
+Day 4 update: All handlers now catch custom exceptions and print clean,
+user-friendly error messages to stderr with a non-zero exit code.
 """
 
 import argparse
@@ -16,9 +19,33 @@ import sys
 
 from winflashcache import __version__, __app_name__
 from winflashcache.store import DataStore
+from winflashcache.exceptions import WinFlashCacheError, KeyNotFoundError
 
 # Instantiate our global storage engine
 store = DataStore()
+
+
+# =============================================================================
+# ERROR HELPER
+# =============================================================================
+
+def _error(message: str, exit_code: int = 1) -> None:
+    """
+    Print a formatted error message to stderr and exit the process.
+
+    We write errors to stderr (sys.stderr) rather than stdout because:
+    - stdout is for program output (what you'd pipe or redirect).
+    - stderr is for error messages (always shown to the user).
+    This matters when users script with WinFlashCache:
+        winflashcache get mykey >> output.txt
+    Errors will still appear on screen, not pollute the output file.
+
+    Args:
+        message:   Human-readable error description.
+        exit_code: Process exit code (non-zero signals failure to the OS).
+    """
+    print(f"(error) {message}", file=sys.stderr)
+    sys.exit(exit_code)
 
 
 # =============================================================================
@@ -26,40 +53,50 @@ store = DataStore()
 # =============================================================================
 # Each function below handles one CLI command, executing the corresponding
 # operation on our DataStore instance and printing formatted results.
+# Errors raised by the store are caught here and displayed cleanly.
 # =============================================================================
 
 def handle_set(args):
     """Handle the SET command — store a key-value pair."""
-    store.set(args.key, args.value)
-    print(f'SET "{args.key}" => "{args.value}"')
-    print("OK")
+    try:
+        store.set(args.key, args.value)
+        print(f'SET "{args.key}" => "{args.value}"')
+        print("OK")
+    except WinFlashCacheError as exc:
+        _error(str(exc))
 
 
 def handle_get(args):
     """Handle the GET command — retrieve a value by its key."""
-    val = store.get(args.key)
-    if val is None:
-        print("(nil)")
-    else:
+    try:
+        val = store.get(args.key)
         print(f'"{val}"')
+    except KeyNotFoundError as exc:
+        # Use exit code 2 for "not found" — distinct from validation errors (1).
+        _error(str(exc), exit_code=2)
+    except WinFlashCacheError as exc:
+        _error(str(exc))
 
 
 def handle_del(args):
     """Handle the DEL command — delete a key-value pair."""
-    existed = store.delete(args.key)
-    if existed:
-        print("(integer) 1")
-    else:
-        print("(integer) 0")
+    try:
+        existed = store.delete(args.key)
+        if existed:
+            print("(integer) 1")
+        else:
+            print("(integer) 0")
+    except WinFlashCacheError as exc:
+        _error(str(exc))
 
 
 def handle_exists(args):
     """Handle the EXISTS command — check if a key is present."""
-    exists = store.exists(args.key)
-    if exists:
-        print("(boolean) true")
-    else:
-        print("(boolean) false")
+    try:
+        found = store.exists(args.key)
+        print("(boolean) true" if found else "(boolean) false")
+    except WinFlashCacheError as exc:
+        _error(str(exc))
 
 
 def handle_keys(args):
@@ -74,8 +111,7 @@ def handle_keys(args):
 
 def handle_count(args):
     """Handle the COUNT command — display the total number of keys."""
-    count = store.count()
-    print(f"(integer) {count}")
+    print(f"(integer) {store.count()}")
 
 
 def handle_clear(args):
@@ -105,8 +141,6 @@ def build_parser():
         argparse.ArgumentParser: The fully configured parser.
     """
     # ── Main parser ──────────────────────────────────────────────────────
-    # This is the top-level parser. It defines the program name,
-    # description, and the --version flag.
     parser = argparse.ArgumentParser(
         prog="winflashcache",
         description=f"{__app_name__} v{__version__} - A persistent CLI key-value store.",
@@ -120,13 +154,6 @@ def build_parser():
     )
 
     # ── Subparsers ───────────────────────────────────────────────────────
-    # Subparsers let us define multiple commands under one program.
-    # Instead of using flags like --set, we use positional subcommands:
-    #     winflashcache set ...
-    #     winflashcache get ...
-    #
-    # `dest="command"` means: store the chosen subcommand name in
-    # `args.command` so we know which handler to call.
     subparsers = parser.add_subparsers(
         title="commands",
         dest="command",
@@ -139,7 +166,7 @@ def build_parser():
         help="Store a key-value pair",
         description="Store a value under the given key. If the key already exists, its value is overwritten.",
     )
-    set_parser.add_argument("key", help="The key to store")
+    set_parser.add_argument("key", help="The key to store (letters, digits, _, -, :, . only)")
     set_parser.add_argument("value", help="The value to associate with the key")
     set_parser.set_defaults(func=handle_set)
 
@@ -205,22 +232,24 @@ def main():
     """Parse arguments and dispatch to the appropriate command handler.
 
     This is the main entry point for the CLI. It:
-    1. Builds the argument parser
-    2. Parses the user's input from sys.argv
-    3. Calls the matching handler function
+    1. Builds the argument parser.
+    2. Parses the user's input from sys.argv.
+    3. Calls the matching handler function.
+    4. Catches any unexpected exceptions as a last-resort safety net.
 
     If no command is given, it prints the help message.
     """
     parser = build_parser()
     args = parser.parse_args()
 
-    # If the user didn't type any command (just "winflashcache"),
-    # show the help message and exit.
+    # If the user typed just "winflashcache" with no command, show help.
     if args.command is None:
         parser.print_help()
         sys.exit(0)
 
-    # Call the handler function that was attached via set_defaults(func=...).
-    # This is the "dispatch" pattern — instead of a big if/elif chain,
-    # each subparser knows which function to call.
-    args.func(args)
+    # Dispatch to the handler. Any unhandled exception gets caught here
+    # as an absolute last resort, so the user always gets a clean message.
+    try:
+        args.func(args)
+    except Exception as exc:  # noqa: BLE001
+        _error(f"Unexpected error: {exc}", exit_code=99)
