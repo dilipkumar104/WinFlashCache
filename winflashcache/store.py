@@ -9,6 +9,7 @@ and prepare the database for serialization (saving/loading) in the future.
 Day 4 update: All mutating methods now run validation before touching data.
 """
 
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from winflashcache.exceptions import KeyNotFoundError
@@ -17,7 +18,7 @@ from winflashcache.validators import validate_key, validate_value
 
 class DataStore:
     """
-    An in-memory key-value data store.
+    An in-memory key-value data store with write-through file persistence.
 
     This acts as a wrapper around a standard Python dictionary, providing
     isolated and validated operations corresponding to our CLI commands.
@@ -26,10 +27,45 @@ class DataStore:
     raise descriptive custom exceptions on failure.
     """
 
-    def __init__(self) -> None:
-        """Initialize an empty key-value store."""
-        # Our primary in-memory hash map — keys and values are always strings.
+    def __init__(self, filepath: Optional[Path] = None) -> None:
+        """
+        Initialize a key-value store.
+
+        If a filepath is provided, the store loads existing data from it
+        on initialization.
+        """
         self._data: Dict[str, str] = {}
+        self.filepath = filepath
+        if self.filepath:
+            self.load()
+
+    # ── Persistence Operations ───────────────────────────────────────────────
+
+    def load(self, filepath: Optional[Path] = None) -> None:
+        """
+        Load data from disk into the store.
+
+        Args:
+            filepath: Optional path to load from. Defaults to the configured filepath.
+        """
+        path = filepath or self.filepath
+        if not path:
+            return
+        from winflashcache.persistence import load_from_disk
+        self._data = load_from_disk(path)
+
+    def save(self, filepath: Optional[Path] = None) -> None:
+        """
+        Save the current store data to disk.
+
+        Args:
+            filepath: Optional path to save to. Defaults to the configured filepath.
+        """
+        path = filepath or self.filepath
+        if not path:
+            return
+        from winflashcache.persistence import save_to_disk
+        save_to_disk(self._data, path)
 
     # ── Write Operations ───────────────────────────────────────────────────
 
@@ -49,6 +85,7 @@ class DataStore:
         validate_key(key)
         validate_value(value)
         self._data[key] = value
+        self.save()
 
     def delete(self, key: str) -> bool:
         """
@@ -66,12 +103,14 @@ class DataStore:
         validate_key(key)
         if key in self._data:
             del self._data[key]
+            self.save()
             return True
         return False
 
     def clear(self) -> None:
         """Remove all key-value pairs from the store."""
         self._data.clear()
+        self.save()
 
     # ── Read Operations ────────────────────────────────────────────────────
 

@@ -20,9 +20,10 @@ import sys
 from winflashcache import __version__, __app_name__
 from winflashcache.store import DataStore
 from winflashcache.exceptions import WinFlashCacheError, KeyNotFoundError
+from winflashcache.persistence import get_default_store_path
 
-# Instantiate our global storage engine
-store = DataStore()
+# Instantiate our global storage engine with default persistent path
+store = DataStore(filepath=get_default_store_path())
 
 
 # =============================================================================
@@ -118,6 +119,15 @@ def handle_clear(args):
     """Handle the CLEAR command — remove all stored data."""
     store.clear()
     print("OK - all data cleared.")
+
+
+def handle_save(args):
+    """Handle the SAVE command — force save data to disk."""
+    try:
+        store.save()
+        print("OK")
+    except Exception as exc:
+        _error(f"Failed to save: {exc}")
 
 
 # =============================================================================
@@ -220,6 +230,14 @@ def build_parser():
         description="Delete every key-value pair from the store. This cannot be undone.",
     )
     clear_parser.set_defaults(func=handle_clear)
+
+    # ── SAVE ─────────────────────────────────────────────────────────────
+    save_parser = subparsers.add_parser(
+        "save",
+        help="Force a save of the store to disk",
+        description="Force a synchronous write of the in-memory data to the persistent file.",
+    )
+    save_parser.set_defaults(func=handle_save)
 
     return parser
 
