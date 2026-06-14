@@ -58,12 +58,16 @@ def _error(message: str, exit_code: int = 1) -> None:
 # =============================================================================
 
 def handle_set(args):
-    """Handle the SET command — store a key-value pair."""
+    """Handle the SET command — store a key-value pair, with optional TTL."""
     try:
-        store.set(args.key, args.value)
-        print(f'SET "{args.key}" => "{args.value}"')
+        ttl = args.ttl if hasattr(args, 'ttl') else None
+        store.set(args.key, args.value, ttl=ttl)
+        if ttl is not None:
+            print(f'SET "{args.key}" => "{args.value}" (expires in {ttl}s)')
+        else:
+            print(f'SET "{args.key}" => "{args.value}"')
         print("OK")
-    except WinFlashCacheError as exc:
+    except (WinFlashCacheError, ValueError) as exc:
         _error(str(exc))
 
 
@@ -130,6 +134,20 @@ def handle_save(args):
         _error(f"Failed to save: {exc}")
 
 
+def handle_ttl(args):
+    """Handle the TTL command — show remaining time-to-live for a key."""
+    try:
+        remaining = store.get_ttl(args.key)
+        if remaining is None:
+            print("(integer) -1")   # Redis convention: -1 means no expiry
+        else:
+            print(f"(float) {remaining:.2f}s remaining")
+    except KeyNotFoundError as exc:
+        _error(str(exc), exit_code=2)
+    except WinFlashCacheError as exc:
+        _error(str(exc))
+
+
 # =============================================================================
 # ARGUMENT PARSER BUILDER
 # =============================================================================
@@ -178,6 +196,13 @@ def build_parser():
     )
     set_parser.add_argument("key", help="The key to store (letters, digits, _, -, :, . only)")
     set_parser.add_argument("value", help="The value to associate with the key")
+    set_parser.add_argument(
+        "--ttl",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Optional time-to-live in seconds. The key will auto-expire after this duration.",
+    )
     set_parser.set_defaults(func=handle_set)
 
     # ── GET ──────────────────────────────────────────────────────────────
@@ -238,6 +263,15 @@ def build_parser():
         description="Force a synchronous write of the in-memory data to the persistent file.",
     )
     save_parser.set_defaults(func=handle_save)
+
+    # ── TTL ──────────────────────────────────────────────────────────────
+    ttl_parser = subparsers.add_parser(
+        "ttl",
+        help="Show remaining time-to-live for a key",
+        description="Display how many seconds remain before the key expires. Returns -1 if the key has no expiry.",
+    )
+    ttl_parser.add_argument("key", help="The key to inspect")
+    ttl_parser.set_defaults(func=handle_ttl)
 
     return parser
 

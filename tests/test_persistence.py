@@ -37,14 +37,17 @@ def test_save_and_load_success(tmp_path):
     save_to_disk(data, file_path)
     assert file_path.exists()
 
-    loaded_data = load_from_disk(file_path)
+    loaded_data, loaded_ttl = load_from_disk(file_path)
     assert loaded_data == data
+    assert loaded_ttl == {}
 
 
 def test_load_non_existent_file_returns_empty_dict(tmp_path):
-    """Loading a file that does not exist should return an empty dict."""
+    """Loading a file that does not exist should return empty dicts."""
     file_path = tmp_path / "non_existent.json"
-    assert load_from_disk(file_path) == {}
+    data, ttl = load_from_disk(file_path)
+    assert data == {}
+    assert ttl == {}
 
 
 def test_load_corrupted_json_raises_value_error(tmp_path):
@@ -89,10 +92,10 @@ def test_datastore_persistence_integration(tmp_path):
     store1.set("name", "Dilip")
     assert file_path.exists()
 
-    # Load file contents directly to verify it was written correctly
+    # Load file contents directly to verify it was written correctly (v2 format)
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert data == {"name": "Dilip"}
+    assert data["data"] == {"name": "Dilip"}
 
     # 3. Initialize a new store with the same path, verify it loads automatically
     store2 = DataStore(filepath=file_path)
@@ -102,14 +105,14 @@ def test_datastore_persistence_integration(tmp_path):
     store2.delete("name")
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert data == {}
+    assert data["data"] == {}
 
     # 5. Set and clear should save automatically
     store2.set("age", "20")
     store2.clear()
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert data == {}
+    assert data["data"] == {}
 
 
 def test_datastore_save_load_explicit_calls(tmp_path):
@@ -126,7 +129,7 @@ def test_datastore_save_load_explicit_calls(tmp_path):
     assert file_path.exists()
 
     with open(file_path, "r", encoding="utf-8") as f:
-        assert json.load(f) == {"foo": "bar"}
+        assert json.load(f)["data"] == {"foo": "bar"}
 
     # Modify in-memory store
     store.set("foo", "baz")

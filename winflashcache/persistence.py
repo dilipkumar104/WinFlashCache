@@ -7,14 +7,24 @@ WHY A SEPARATE MODULE?
     - You can swap JSON for a binary format later without touching DataStore.
     - Tests for DataStore don't need a real disk at all.
 
-FILE FORMAT: JSON
+FILE FORMAT: JSON (v2 — with TTL support)
     We use Python's built-in `json` module — no extra libraries needed.
     The file looks like this:
         {
-            "name": "Dilip",
-            "lang": "Python",
-            "project": "WinFlashCache"
+            "data": {
+                "name": "Dilip",
+                "lang": "Python"
+            },
+            "ttl": {
+                "session": 1718000000.0
+            }
         }
+
+    Keys without a TTL simply don't appear in the "ttl" dict.
+
+    BACKWARD COMPATIBILITY:
+        Old v1 files (a flat JSON object with no "data" key) are still
+        supported. They are loaded as data-only with no TTL entries.
 
 STORAGE LOCATION:
     Default: ~/.winflashcache/default.json
@@ -39,7 +49,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 
 # ── Default storage path ───────────────────────────────────────────────────────
@@ -60,9 +70,14 @@ def get_default_store_path() -> Path:
 
 # ── Core I/O Functions ─────────────────────────────────────────────────────────
 
-def save_to_disk(data: Dict[str, str], path: Path) -> None:
+def save_to_disk(
+    data: Dict[str, str],
+    path: Path,
+    ttl_data: Dict[str, float] = None,
+) -> None:
     """
-    Write a key-value dictionary to a JSON file using an atomic write.
+    Write a key-value dictionary (and optional TTL data) to a JSON file
+    using an atomic write.
 
     The atomic write pattern prevents data corruption:
         1. Write to a temporary file in the same directory.
@@ -70,24 +85,28 @@ def save_to_disk(data: Dict[str, str], path: Path) -> None:
         3. Rename the temp file over the target file (atomic operation).
 
     Args:
-        data: The dictionary to serialize and save.
-        path: The file path to write to.
+        data:     The key→value dictionary to serialize and save.
+        path:     The file path to write to.
+        ttl_data: Optional key→expiry_timestamp dictionary.
 
     Raises:
         OSError: If the directory is not writable or the disk is full.
     """
-    # Write to a temp file in the SAME directory as the target.
-    # Same directory is important because rename() across different
-    # filesystems/drives is NOT atomic.
+    if ttl_data is None:
+        ttl_data = {}
+
+    payload = {
+        "data": data,
+        "ttl": ttl_data,
+    }
+
     dir_path = path.parent
     dir_path.mkdir(parents=True, exist_ok=True)
 
-    # NamedTemporaryFile gives us a unique temp filename automatically.
-    # delete=False means the file persists after we close it so we can rename it.
     fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-            json.dump(data, tmp_file, indent=2, ensure_ascii=False)
+            json.dump(payload, tmp_file, indent=2, ensure_ascii=False)
             tmp_file.write("\n")   # POSIX convention: end file with newline
             tmp_file.flush()
             os.fsync(tmp_file.fileno())   # Force OS to flush to physical disk
@@ -102,25 +121,31 @@ def save_to_disk(data: Dict[str, str], path: Path) -> None:
         raise
 
 
-def load_from_disk(path: Path) -> Dict[str, str]:
+def load_from_disk(path: Path) -> Tuple[Dict[str, str], Dict[str, float]]:
     """
-    Read and deserialize a JSON file into a key-value dictionary.
+    Read and deserialize a JSON file into a key-value dictionary and
+    an optional TTL dictionary.
 
-    If the file does not exist, returns an empty dictionary — this is
-    the expected state on first launch.
+    If the file does not exist, returns empty dicts — this is the
+    expected state on first launch.
+
+    BACKWARD COMPATIBILITY:
+        Old v1 files (flat JSON objects without a "data" key) are
+        automatically detected and loaded as data-only with no TTL.
 
     Args:
         path: The file path to read from.
 
     Returns:
-        A dict[str, str] of the stored key-value pairs, or {} if not found.
+        A tuple: (data_dict, ttl_dict) where both are plain dicts.
+        ttl_dict maps key→expiry_timestamp (float).
 
     Raises:
         ValueError: If the file exists but is not valid JSON.
-        ValueError: If the JSON is valid but is not a flat string→string dict.
+        ValueError: If the JSON structure is not recognized.
     """
     if not path.exists():
-        return {}
+        return {}, {}
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -130,19 +155,43 @@ def load_from_disk(path: Path) -> Dict[str, str]:
             f"Store file '{path}' is corrupted (invalid JSON): {exc}"
         ) from exc
 
-    # Validate that the loaded data is a flat string-to-string dict.
-    # This guards against someone manually editing the file into a bad shape.
     if not isinstance(raw, dict):
         raise ValueError(
             f"Store file '{path}' has wrong format: expected a JSON object, "
             f"got {type(raw).__name__}."
         )
 
-    for k, v in raw.items():
+    # ── Detect v1 (flat) vs v2 (nested) format ────────────────────────────────
+    if "data" in raw:
+        # v2 format: { "data": {...}, "ttl": {...} }
+        data = raw.get("data", {})
+        ttl_data = raw.get("ttl", {})
+    else:
+        # v1 backward-compat: flat dict is treated as data-only
+        data = raw
+        ttl_data = {}
+
+    # Validate data section
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Store file '{path}': 'data' field must be a JSON object."
+        )
+    for k, v in data.items():
         if not isinstance(k, str) or not isinstance(v, str):
             raise ValueError(
                 f"Store file '{path}' has non-string entry: {k!r}: {v!r}. "
                 f"All keys and values must be strings."
             )
 
-    return raw
+    # Validate ttl section
+    if not isinstance(ttl_data, dict):
+        raise ValueError(
+            f"Store file '{path}': 'ttl' field must be a JSON object."
+        )
+    for k, v in ttl_data.items():
+        if not isinstance(k, str) or not isinstance(v, (int, float)):
+            raise ValueError(
+                f"Store file '{path}' has invalid TTL entry: {k!r}: {v!r}."
+            )
+
+    return data, {k: float(v) for k, v in ttl_data.items()}
